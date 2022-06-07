@@ -1,4 +1,5 @@
 <?php
+
 /*
  * This file is part of the _3xAPI package.
  *
@@ -13,11 +14,10 @@ namespace _3xAPI;
 use _3xAPI\Request\CurlHandle;
 use _3xAPI\Request\ParamsBag;
 use _3xAPI\Helpers\Format;
-use _3xAPI\Helpers\Logger;
 use _3xAPI\Exceptions\ModelException;
-use _3xAPI\Models\ModelInterface;
-use _3xAPI\Logger\Logger;
-use _3xAPI\Logger\StdRoute;
+use _3xAPI\Models\AbstractModel;
+use _3xAPI\Logger\LoggerManager;
+use _3xAPI\Logger\StdLogger;
 use Psr\Log\LogLevel;
 
 /**
@@ -36,45 +36,41 @@ class AbstractClient
      * @author dotzero <mail@dotzero.ru>
      */
     public $fields = null;
-
     /**
      * @var ParamsBag|null Экземпляр ParamsBag для хранения аргументов
      * @author dotzero <mail@dotzero.ru>
      */
-    public $parameters = null;
-
+    private $parameters = null;
     /**
      * @var CurlHandle Экземпляр CurlHandle для повторного использования
      * @author dotzero <mail@dotzero.ru>
      */
     private $curlHandle;
-
     /**
      * @var bool Флаг вывода отладочной информации
      * @author Alexei Dubrovski <alaxji@gmail.com>
      */
     private $debug = false;
-
     /**
      * @var bool Флаг для использования куков
      * @author Alexei Dubrovski <alaxji@gmail.com>
      */
     private $cookie = false;
-
     /**
      * @var object
      */
     private $logger;
-
     /**
      *
-     * @var StdRoute|object
+     * @var StdLogger|object
      */
     private $route;
 
     /**
      * AbstractClient constructor
      *
+     * @param Psr\Log\LoggerInterface $logger
+     * 
      * @author Alexei Dubrovski <alaxji@gmail.com>
      * @author dotzero <mail@dotzero.ru>
      */
@@ -82,37 +78,42 @@ class AbstractClient
     {
         $this->parameters = new ParamsBag();
         $this->curlHandle = new CurlHandle();
-        $this->logger     = new Logger();
+        $this->logger = new LoggerManager();
         if (is_null($logger)) {
-            $this->route = new StdRoute(LogLevel::INFO);
+            $this->route = new StdLogger(LogLevel::INFO);
         } else {
             $this->route = $logger;
         }
-        $this->logger->addRoute($this->route);
+        $this->logger->addLogger($this->route);
     }
 
     /**
-     * Возвращает экземпляр модели для работы с amoCRM API
+     * Возвращает экземпляр модели для работы с API
      *
      * @param string $name Название модели
-     * @return ModelInterface
+     * @return AbstractModel
      * @throws ModelException
+     * @version 1.0.1
      * @author Alexei Dubrovski <alaxji@gmail.com>
      * @author dotzero <mail@dotzero.ru>
      */
     public function __get($name)
     {
-        $rClass    = new \ReflectionClass($this);
+        $rClass = new \ReflectionClass($this);
         $namespace = $rClass->getNamespaceName();
-        $classname = "\\$namespace\\Models\\".Format::upperCamelCase($name);
+        $classname = strtr('\\<namespace>\\Models\\<modelName>', [
+            '<namespace>' => $namespace,
+            '<modelName>' => Format::upperCamelCase($name),
+        ]);
         if (!class_exists($classname)) {
-            throw new ModelException('Model not exists: '.$name);
+            throw new ModelException('Model not exists: ' . $name);
         }
 
         // Чистим GET и POST от предыдущих вызовов
-        $this->parameters->clearGet()->clearPost();
+        $this->parameters->reset();
 
-        $item = new $classname($this->logger, $this->parameters, $this->curlHandle);
+        /** @var AbstractModel $item */
+        $item = new $classname($this->logger, $this);
         $item->setDebug($this->debug)
             ->setCookies($this->cookie);
 
@@ -128,7 +129,7 @@ class AbstractClient
      * @return $this
      * @author Alexei Dubrovski <alaxji@gmail.com>
      */
-    public function setDebug($flag = false)
+    public function setDebug($flag = true)
     {
         $this->debug = (bool) $flag;
 
@@ -145,10 +146,28 @@ class AbstractClient
      * @return $this
      * @author Alexei Dubrovski <alaxji@gmail.com>
      */
-    public function setCookie($flag = false)
+    public function setCookie($flag = true)
     {
         $this->cookie = (bool) $flag;
 
         return $this;
+    }
+
+    /**
+     * Получить ?параметры? клиента
+     * @return ParamsBag|null
+     */
+    public function getParameters(): ?ParamsBag
+    {
+        return $this->parameters;
+    }
+
+    /**
+     * Получить обтрботчик cURL
+     * @return CurlHandle
+     */
+    public function getCurlHandle(): CurlHandle
+    {
+        return $this->curlHandle;
     }
 }

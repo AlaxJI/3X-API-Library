@@ -13,5 +13,5 @@ namespace _3xAPI\Models;
  */
 interface ModelInterface
 {
-
+    // empty
 }

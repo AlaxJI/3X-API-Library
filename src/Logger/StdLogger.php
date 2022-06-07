@@ -1,4 +1,5 @@
 <?php
+
 /*
  * This file is part of the _3xAPI package.
  *
@@ -20,23 +21,22 @@ use Psr\Log\LogLevel;
  *
  * @author alaxji
  */
-class StdRoute extends AbstractLogger implements LoggerInterface
+class StdLogger extends AbstractLogger implements LoggerInterface
 {
-    private $intLevel = array(
+    private $intLevel = [
         LogLevel::EMERGENCY => 0,
-        LogLevel::ALERT     => 1,
-        LogLevel::CRITICAL  => 2,
-        LogLevel::ERROR     => 3,
-        LogLevel::WARNING   => 4,
-        LogLevel::NOTICE    => 5,
-        LogLevel::INFO      => 6,
-        LogLevel::DEBUG     => 7,
-    );
-
+        LogLevel::ALERT => 1,
+        LogLevel::CRITICAL => 2,
+        LogLevel::ERROR => 3,
+        LogLevel::WARNING => 4,
+        LogLevel::NOTICE => 5,
+        LogLevel::INFO => 6,
+        LogLevel::DEBUG => 7,
+    ];
     /**
      * @var LogLevel Уровень логирования
      */
-    private $level    = null;
+    private $level = null;
 
     /**
      *
@@ -53,22 +53,22 @@ class StdRoute extends AbstractLogger implements LoggerInterface
      * @param type $message
      * @param array $context
      */
-    public function log($level, $message, array $context = array())
+    public function log($level, $message, array $context = [])
     {
         if ($this->intLevel[$level] <= $this->intLevel[$this->level]) {
             $levelOut = strtoupper($level);
-            $line     = sprintf("[$levelOut] %s: %s", $message, $context);
-            print_r($line.PHP_EOL);
+            $line = sprintf("[$levelOut] %s: %s", $message, implode(', ', $context));
+            print_r($line . PHP_EOL);
         }
         return $this;
     }
 
     /**
-     *
+     * Устанавливает уровень логгирования
      * @param LogLevel $level
      */
     public function setLevel($level)
     {
-        $this->level= $level;
+        $this->level = $level;
     }
 }

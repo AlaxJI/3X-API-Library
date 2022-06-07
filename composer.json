@@ -1,7 +1,7 @@
 {
     "name": "alaxji/3x-api-library",
     "description": "Library for made API for mostly services",
-    "version":"0.0.2-SNAPSHORT",
+    "version":"0.0.3-SNAPSHOT",
     "authors": [
         {
             "name": "Алексей Дубровский",
@@ -11,5 +11,14 @@
     "require": {
         "php": "> 5.6",
         "psr/log": "dev-master"
+    },
+    "autoload": {
+        "psr-4": {
+            "_3xAPI\\": [
+                "src/",
+                "test/",
+                "example"
+            ]
+        }
     }
 }

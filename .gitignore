@@ -7,3 +7,4 @@ composer.lock
 *.log
 *.pid
 *.zip
+.php_cs.cache

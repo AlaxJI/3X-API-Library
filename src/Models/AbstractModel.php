@@ -29,7 +29,6 @@ abstract class AbstractModel extends Request implements ArrayAccess, ModelInterf
      * @var array Список доступный полей для модели (исключая кастомные поля)
      */
     protected $fields = [];
-
     /**
      * @var array Список значений полей для модели
      */
@@ -50,11 +49,11 @@ abstract class AbstractModel extends Request implements ArrayAccess, ModelInterf
      *
      * @link http://php.net/manual/ru/arrayaccess.offsetexists.php
      * @param mixed $offset Название поля для проверки
-     * @return boolean Возвращает true или false
+     * @return boolean Возвращает `true` или `false`
      */
     public function offsetExists($offset)
     {
-        return isset($this->fields[$offset]) || (isset($this->fields["custom_fields"]) && isset($this->fields["custom_fields"][$offset]));
+        return in_array($offset, $this->fields) || (isset($this->fields['custom_fields']) && in_array($offset, $this->fields['custom_fields']));
     }
 
     /**
@@ -66,14 +65,14 @@ abstract class AbstractModel extends Request implements ArrayAccess, ModelInterf
      */
     public function offsetGet($offset)
     {
-        $getter = 'get'.Format::CamelCase($offset);
+        $getter = 'get' . Format::upperCamelCase($offset);
 
         if (method_exists($this, $getter)) {
             return $this->$getter();
         } elseif (isset($this->values[$offset])) {
             return $this->values[$offset];
-        } elseif (isset($this->values["custom_fields"]) && isset($this->values["custom_fields"][$offset])) {
-            return $this->values["custom_fields"][$offset];
+        } elseif (isset($this->values['custom_fields']) && isset($this->values['custom_fields'][$offset])) {
+            return $this->values['custom_fields'][$offset];
         }
         return null;
     }
@@ -90,17 +89,17 @@ abstract class AbstractModel extends Request implements ArrayAccess, ModelInterf
     public function offsetSet($offset, $value)
     {
         if (!$this->offsetExists($offset)) {
-            throw new ModelException('Parametr not exists: '.$offset);
+            throw new ModelException('Parametr not exists in ' . get_class($this) . ': ' . $offset);
         }
 
-        $setter = 'set'.Format::camelCase($offset);
+        $setter = 'set' . Format::lowerCamelCase($offset);
 
         if (method_exists($this, $setter)) {
             return $this->$setter($value);
         } elseif (in_array($offset, $this->fields)) {
             $this->values[$offset] = $value;
-        } elseif (isset($this->fields["custom_fields"]) && in_array($offset, $this->fields["custom_fields"])) {
-            $this->values["custom_fields"][$offset] = $value;
+        } elseif (isset($this->fields['custom_fields']) && in_array($offset, $this->fields['custom_fields'])) {
+            $this->values['custom_fields'][$offset] = $value;
         }
     }
 
@@ -114,8 +113,8 @@ abstract class AbstractModel extends Request implements ArrayAccess, ModelInterf
     {
         if (isset($this->values[$offset])) {
             unset($this->values[$offset]);
-        } elseif (isset($this->values["custom_fields"]) && isset($this->values["custom_fields"][$offset])) {
-            unset($this->values["custom_fields"][$offset]);
+        } elseif (isset($this->values['custom_fields']) && isset($this->values['custom_fields'][$offset])) {
+            unset($this->values['custom_fields'][$offset]);
         }
     }
 
@@ -141,7 +140,7 @@ abstract class AbstractModel extends Request implements ArrayAccess, ModelInterf
     public function addCustomField($id, $value, $enum = false, $subtype = false)
     {
         $field = [
-            'id'     => $id,
+            'id' => $id,
             'values' => [],
         ];
 
@@ -184,7 +183,7 @@ abstract class AbstractModel extends Request implements ArrayAccess, ModelInterf
     public function addCustomMultiField($id, $values)
     {
         $field = [
-            'id'     => $id,
+            'id' => $id,
             'values' => [],
         ];
 
@@ -215,13 +214,76 @@ abstract class AbstractModel extends Request implements ArrayAccess, ModelInterf
         return true;
     }
 
+    public function __call($name, $arguments)
+    {
+        $result = $this;
+
+        $getOrSet = substr($name, 0, 3);
+        $fieldCamelCase = substr($name, 3);
+        $field = Format::snakeCase($fieldCamelCase);
+        switch ($getOrSet) {
+            case 'get':
+                $result = $this->offsetGet($field);
+                break;
+            case 'set':
+                $this->offsetSet($field, $arguments[0]);
+                break;
+            default:
+                throw new ModelException('Method `' . $name . '` is not available in' . get_class($this));
+        }
+
+        return $result;
+    }
+
     public function __get($offset)
     {
-        return $this->offsetGet($offset);
+        $result = $this->tryModel($offset);
+        if (is_null($result)) {
+            $result = $this->offsetGet($offset);
+        }
+
+        return $result;
     }
 
     public function __set($offset, $value)
     {
         $this->offsetSet($offset, $value);
+    }
+
+    public function __isset($name)
+    {
+        $result = !is_null($this->__get($name));
+
+        return $result;
+    }
+
+    /**
+     *
+     * @param type $name
+     * @throws ModelException
+     */
+    private function tryModel($name)
+    {
+        $item = null;
+
+        $rClass = new \ReflectionClass($this);
+        $fullClassName = $rClass->getName();
+        $classname = strtr('\\<full_class_name><model_name>', [
+            '<full_class_name>' => $fullClassName,
+            '<model_name>' => Format::upperCamelCase($name),
+        ]);
+        if (class_exists($classname)) {
+            // Чистим GET и POST от предыдущих вызовов
+            $this->parameters->reset();
+
+            /** @var AbstractModel $item */
+            $client = $this->getClient();
+            $item = new $classname($this->logger, $client, $this);
+            $this->copyPropertiesTo($item);
+
+            $this->logger->debug("Создан экземпляр подкласса $name");
+        }
+
+        return $item;
     }
 }

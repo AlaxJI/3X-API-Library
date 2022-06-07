@@ -1,4 +1,5 @@
 <?php
+
 /*
  * This file is part of the _3xAPI package.
  *
@@ -10,235 +11,118 @@
 
 namespace _3xAPI\Request;
 
+use _3xAPI\AbstractClient;
+use _3xAPI\Models\AbstractModel;
 use _3xAPI\Exceptions\NetworkException;
+use _3xAPI\Exceptions\ModelException;
 use _3xAPI\Exceptions\Exception;
-use _3xAPI\Logger\Logger;
+use _3xAPI\Logger\LoggerManager;
+use _3xAPI\Request\CurlHandle;
+use _3xAPI\Request\RequestProperties;
+use _3xAPI\Request\ParamsBag;
 use DateTime;
+use Psr\Log\LogLevel;
 
 /**
  * Класс отправляющий запросы к API используя cURL
  *
  * @package _3xAPI\Request
- * @version 1.0.0
+ * @version 1.0.1
  * @author dotzero <mail@dotzero.ru>
  * @author Alexei Dubrovski <alaxji@gmail.com>
  *
  * For the full copyright and license information, please view the LICENSE
  * file that was distributed with this source code.
  */
-class Request
+class Request extends RequestProperties
 {
     /**
-     *
-     * @var bool Флаг для обработки ответа от сервера через json_decode(, true). По-умолчанию, `true`.
-     * @see parseResponse()
+     * @var AbstractClient
+     */
+    private $client;
+    /**
+     * @var CurlHandle Экземпляр CurlHandle
+     * @author dotzero <mail@dotzero.ru>
+     */
+    private $curlHandle;
+    /**
+     * Параметр запроса Endpoint
+     * @var string $endpoint
+     */
+    private $endpoint = null;
+    /**
+     * @var array|null Дополнительные параметры в заколовке запроса
      * @author Alexei Dubrovski <alaxji@gmail.com>
      */
-    private $parseResponse = true;
-
+    private $extraHeaders = null;
+    /**
+     * @var int|null Последний полученный HTTP код
+     * @author dotzero <mail@dotzero.ru>
+     */
+    private $lastHttpCode = null;
+    /**
+     * @var string|null Последний полученный HTTP ответ
+     * @author dotzero <mail@dotzero.ru>
+     */
+    private $lastHttpResponse = null;
+    /**
+     * @var Logger|null Экземпляр логгера для вывода информации
+     * @author Alexei Dubrovski <alaxji@gmail.com>
+     */
+    protected $logger = null;
+    /**
+     * @var ParamsBag|null Экземпляр ParamsBag для хранения аргументов
+     * @author dotzero <mail@dotzero.ru>
+     */
+    private $parameters = null;
+    /**
+     * @var AbstractModel|null Родительский модуль
+     * @author Alexei Dubrovski <alaxji@gmail.com>
+     */
+    private $parent;
     /**
      * Включён для совместимости.
      * @var boolean включает/отключает использование параметра CURLOPT_BINARYTRANSFER, для возврата необработанного ответа при использовании константы.
      * @author Alexei Dubrovski <alaxji@gmail.com>
      */
     private $parseTransfer = true;
-
     /**
-     * @var bool Флаг использования протокола https. По-умолчанию, `true`.
+     * @var bool Флаг использования индивидуального Endpoint`а. По-умолчанию, `false`. Endpoint добавляется в конец родительского.
      * @author Alexei Dubrovski <alaxji@gmail.com>
      */
-    private $https = true;
-
-    /**
-     * @var bool Флаг использования authenticated (http basic). По-умолчанию, `false`.
-     * @author Alexei Dubrovski <alaxji@gmail.com>
-     */
-    private $httpAuth = false;
-
-    /**
-     * При включении этого параметра все переменные авторизации, кроме `domain`, будут присоеденены к GET-запросу как `КЛЮЧ1=ЗНАЧЕНИЕ1&КЛЮЧ2=ЗНАЧЕНИЕ2...`
-     * @var bool Флаг передачи пароля и пользователя в get запросе. По-умолчанию, `false`.
-     * @author Alexei Dubrovski <alaxji@gmail.com>
-     */
-    private $authIsGet = false;
-
-    /**
-     * @var bool Флаг для установки передачи данных в `Content-Type: application/json`. По-умолчанию, `true`.
-     * @author Alexei Dubrovski <alaxji@gmail.com>
-     */
-    private $json = true;
-
-    /**
-     * @var bool Флаг для включения использования куков, По-умолчанию, `false`.
-     * @author Alexei Dubrovski <alaxji@gmail.com>
-     */
-    private $cookies = false;
-
-    /**
-     * @var bool Флаг вывода отладочной информации. По-умолчанию, `false`.
-     * @author dotzero <mail@dotzero.ru>
-     */
-    private $debug = false;
-
-    /**
-     * @var ParamsBag|null Экземпляр ParamsBag для хранения аргументов
-     * @author dotzero <mail@dotzero.ru>
-     */
-    private $parameters = null;
-
-    /**
-     * @var CurlHandle Экземпляр CurlHandle
-     * @author dotzero <mail@dotzero.ru>
-     */
-    private $curlHandle;
-
-    /**
-     * @var int|null Последний полученный HTTP код
-     * @author dotzero <mail@dotzero.ru>
-     */
-    private $lastHttpCode = null;
-
-    /**
-     * @var string|null Последний полученный HTTP ответ
-     * @author dotzero <mail@dotzero.ru>
-     */
-    private $lastHttpResponse = null;
-
-    /**
-     * @var object|null Экземпляр логгера для вывода информации
-     * @author Alexei Dubrovski <alaxji@gmail.com>
-     */
-    private $logger = null;
-
-    /**
-     * @var string|null Последняя ошибка перевода в JSON
-     * @author Alexei Dubrovski <alaxji@gmail.com>
-     */
-    private $lastJsonError = null;
-
-    /**
-     * @var array|null Дополнительные параметры в заколовке запроса
-     * @author Alexei Dubrovski <alaxji@gmail.com>
-     */
-    private $extraHeaders = null;
+    private $endpointIndividual = false;
 
     /**
      * Request constructor
      *
-     * @param ParamsBag       $parameters Экземпляр ParamsBag для хранения аргументов
-     * @param CurlHandle|null $curlHandle Экземпляр CurlHandle для повторного использования
-     * @param object|null     $logger Экземпляр логгера для вывода информации
+     * @param Logger $logger
+     * @param ParamsBag $parameters
+     * @param CurlHandle $curlHandle
+     * @param AbstractClient $client
+     * @param AbstractModel $parent
+     * @author Alexei Dubrovski <alaxji@gmail.com>
      * @author dotzero <mail@dotzero.ru>
      */
-    public function __construct(Logger $logger, ParamsBag $parameters, CurlHandle $curlHandle = null)
+    public function __construct(LoggerManager &$logger, AbstractClient &$client, AbstractModel &$parent = null)
     {
-        $this->logger     = $logger;
-        $this->parameters = $parameters;
-        $this->curlHandle = $curlHandle !== null ? $curlHandle : new CurlHandle();
-    }
+        if (is_null($client)) {
+            throw new ModelException('It mast be the client in there.');
+        }
 
-    /**
-     * Установка флага вывода отладочной информации
-     *
-     * @param bool $flag Значение флага
-     * @return $this
-     * @author dotzero <mail@dotzero.ru>
-     */
-    public function setDebug($flag = false)
-    {
-        $this->debug = (bool) $flag;
+        $this->client = !is_null($client) ? $client : null;
+        $this->parent = !is_null($parent) ? $parent : null;
+        $this->logger = $logger;
 
-        $level = $this->debug ? LogLevel::DEBUG : LogLevel::INFO;
-        $this->logger->setLevel($level);
+        $parameters = $this->client->getParameters();
+        $curlHandle = $this->client->getCurlHandle();
+        if (!is_null($this->parent)) {
+            $parameters = $this->parent->getParameters();
+            $curlHandle = $this->parent->getCurlHandle();
+            $this->parent->copyPropertiesTo($this);
+        }
 
-        return $this;
-    }
-
-    /**
-     * Установка флага отправки данных через JSON
-     *
-     * @param bool $flag Значение флага
-     * @return $this
-     * @author Alexei Dubrovski <alaxji@gmail.com>
-     */
-    public function setJSON($flag = false)
-    {
-        $this->json = (bool) $flag;
-
-        return $this;
-    }
-
-    /**
-     * Установка флага отправки данных через HTTPS
-     *
-     * @param bool $flag Значение флага
-     * @return $this
-     * @author Alexei Dubrovski <alaxji@gmail.com>
-     */
-    public function setHTTPS($flag = false)
-    {
-        $this->https = (bool) $flag;
-
-        return $this;
-    }
-
-    /**
-     * Установка флага отправки данных через HTTP[S].
-     *
-     * Ищет параметры авторизации в список значений параметров для авторизации по ключам `login` и `password`.
-     *
-     * @param bool $flag Значение флага
-     * @return $this
-     * @see ParamsBag::addAuth()
-     * @author Alexei Dubrovski <alaxji@gmail.com>
-     */
-    public function setHTTPAuth($flag = false)
-    {
-        $this->httpAuth = (bool) $flag;
-
-        return $this;
-    }
-
-    /**
-     * Установка флага отправки параметров авторизации GET-запросом
-     *
-     * @param bool $flag Значение флага
-     * @return $this
-     * @author Alexei Dubrovski <alaxji@gmail.com>
-     */
-    public function setGetAuth($flag = false)
-    {
-        $this->authIsGet = (bool) $flag;
-
-        return $this;
-    }
-
-    /**
-     * Установка флага использования cookie
-     *
-     * @param bool $flag Значение флага
-     * @return $this
-     * @author Alexei Dubrovski <alaxji@gmail.com>
-     */
-    public function setCookies($flag = false)
-    {
-        $this->cookies = (bool) $flag;
-
-        return $this;
-    }
-
-    /**
-     * Установка флага обработки ответа от сервера через json_decode(, true).
-     *
-     * @param bool $flag Значение флага
-     * @return $this
-     * @author Alexei Dubrovski <alaxji@gmail.com>
-     */
-    public function setParseResponse($flag = false)
-    {
-        $this->parseResponse = (bool) $flag;
-
-        return $this;
+        $this->parameters = !is_null($parameters) ? $parameters : new ParamsBag();
+        $this->curlHandle = !is_null($curlHandle) ? $curlHandle : new CurlHandle();
     }
 
     /**
@@ -248,7 +132,7 @@ class Request
      * @return $this
      * @author Alexei Dubrovski <alaxji@gmail.com>
      */
-    public function setParseTransfer($flag = false)
+    public function setParseTransfer($flag = true)
     {
         $this->parseTransfer = (bool) $flag;
 
@@ -271,7 +155,7 @@ class Request
      * @param array $headers массив дополнительных http заголовков
      * @author Alexei Dubrovski <alaxji@gmail.com>
      */
-    public function setHeaders($headers = array())
+    public function setHeaders($headers = [])
     {
         $this->extraHeaders = $headers;
 
@@ -295,7 +179,7 @@ class Request
      * @return ParamsBag|null
      * @author dotzero <mail@dotzero.ru>
      */
-    protected function getParameters()
+    public function getParameters()
     {
         return $this->parameters;
     }
@@ -312,6 +196,22 @@ class Request
     }
 
     /**
+     * Получить точку запроса для модели.
+     * @param bool $isFull Если установлено `true` то выводится будет полная точка запроса включая родителей, иначе  конкретная точка зпроса
+     * @return string
+     */
+    public function getEndpoint($isFull = true): string
+    {
+        $endpoint = '';
+        if ($isFull && !$this->isEndpointIndividual() && !is_null($this->getParent())) {
+            $endpoint = $this->getParent()->getEndpoint();
+        }
+
+        $endpoint .= $this->endpoint;
+        return $endpoint;
+    }
+
+    /**
      * Выполнить HTTP GET запрос и вернуть тело ответа
      *
      * @param string $url Запрашиваемый URL
@@ -322,8 +222,10 @@ class Request
      * @throws NetworkException
      * @author dotzero <mail@dotzero.ru>
      */
-    protected function getRequest($url, $parameters = [], $modified = null, $debug = null)
+    protected function get($url, $parameters = [], $modified = null, $debug = null)
     {
+        $this->logger->debug('GET method called');
+
         if (!empty($parameters)) {
             $this->parameters->addGet($parameters);
         }
@@ -336,18 +238,44 @@ class Request
      *
      * @param string $url Запрашиваемый URL
      * @param array $parameters Список POST параметров
+     * @param null|string $modified Значение заголовка IF-MODIFIED-SINCE
+     * @param null|boolean $debug Выводить ответ в отладочной информации. Значение NULL - использовать глобальный параметр debug.
      * @return mixed
      * @throws Exception
      * @throws NetworkException
      * @author dotzero <mail@dotzero.ru>
      */
-    protected function postRequest($url, $parameters = [], $debug = null)
+    protected function post($url, $parameters = [], $modified = null, $debug = null)
     {
+        $this->logger->debug('POST method called');
+
         if (!empty($parameters)) {
             $this->parameters->addPost($parameters);
         }
 
-        return $this->request($url, null, $debug);
+        return $this->request($url, $modified, $debug);
+    }
+
+    /**
+     * Выполнить HTTP PUT запрос и вернуть тело ответа
+     *
+     * @param string $url Запрашиваемый URL
+     * @param array $parameters Список POST параметров
+     * @param null|string $modified Значение заголовка IF-MODIFIED-SINCE
+     * @param null|boolean $debug Выводить ответ в отладочной информации. Значение NULL - использовать глобальный параметр debug.
+     * @return mixed
+     * @throws Exception
+     * @throws NetworkException
+     * @author Alexei Dubrovski <alaxji@gmail.com>
+     */
+    protected function put($url, $parameters = [], $modified = null, $debug = null)
+    {
+        $this->logger->debug('PUT method called');
+
+        $ch = $this->getCurlHandle()->open();
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
+
+        return $this->post($url, $parameters, $modified, $debug);
     }
 
     /**
@@ -360,17 +288,17 @@ class Request
      */
     protected function prepareHeaders($modified = null)
     {
-        $headers   = [];
+        $headers = [];
         $headers[] = 'Connection: keep-alive';
-        if ($this->json) {
+        if ($this->parameters->getJson()) {
             $headers[] = 'Content-Type: application/json';
         }
 
         if ($modified !== null) {
             if (is_int($modified)) {
-                $headers[] = 'IF-MODIFIED-SINCE: '.$modified;
+                $headers[] = 'IF-MODIFIED-SINCE: ' . $modified;
             } else {
-                $headers[] = 'IF-MODIFIED-SINCE: '.(new DateTime($modified))->format(DateTime::RFC1123);
+                $headers[] = 'IF-MODIFIED-SINCE: ' . (new DateTime($modified))->format(DateTime::RFC1123);
             }
         }
 
@@ -388,22 +316,33 @@ class Request
      * @return string
      * @author dotzero <mail@dotzero.ru>
      * @author Alexei Dubrovski <alaxji@gmail.com>
+     * @throws ModelException
      */
     protected function prepareEndpoint($url)
     {
-        $addArray = array();
-        if ($this->authIsGet) {
+        $addArray = [];
+        if ($this->parameters->getGetAuth()) {
             foreach ($this->parameters->getAuth() as $key => $value) {
-                if ($key == "domain") {
+                // DELME: удалить в версии 0.1.0
+                if ($key === ParamsBag::AUTH_PARAM_DOMAIN) {
                     continue;
                 }
                 $addArray[$key] = $value;
             }
         }
-        $query    = http_build_query(array_merge($this->parameters->getGet(), $addArray), null, '&');
-        $protocol = $this->https ? "https" : "http";
+
+        $domain = $this->parameters->getDomain();
+        $url = $this->getEndpoint() . $url;
+
+        $this->checkEmpty([
+            $url,
+            $domain,
+            ], 'Can`t prepare endpoint');
+
+        $query = http_build_query(array_merge($this->parameters->getGet(), $addArray), null, '&');
+        $protocol = $this->parameters->getHttps() ? 'https' : 'http';
         $template = empty($query) ? '%s://%s%s' : '%s://%s%s?%s';
-        return sprintf($template, $protocol, $this->parameters->getAuth('domain'), $url, $query);
+        return sprintf($template, $protocol, $domain, $url, $query);
     }
 
     /**
@@ -420,13 +359,17 @@ class Request
      */
     protected function request($url, $modified = null, $debug = null)
     {
-        $this->logger->debug('json', $this->json);
-        $this->logger->debug('cookies', $this->cookies);
+        if (is_null($debug)) {
+            $debug = $this->debug;
+        }
 
-        $headers  = $this->prepareHeaders($modified);
+        $this->logger->debug('json', [$this->parameters->getJson()]);
+        $this->logger->debug('cookies', [$this->cookies]);
+
+        $headers = $this->prepareHeaders($modified);
         $endpoint = $this->prepareEndpoint($url);
 
-        $this->logger->debug('url', $endpoint);
+        $this->logger->debug('url', [$endpoint]);
         $this->logger->debug('headers', $headers);
 
         $ch = $this->curlHandle->open();
@@ -437,28 +380,27 @@ class Request
         curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
 
         if ($this->cookies) {
-            curl_setopt($ch, CURLOPT_COOKIEFILE, dirname(__FILE__).'/cookie.txt'); #PHP>5.3.6 dirname(__FILE__) -> __DIR__
-            curl_setopt($ch, CURLOPT_COOKIEJAR, dirname(__FILE__).'/cookie.txt'); #PHP>5.3.6 dirname(__FILE__) -> __DIR__
+            curl_setopt($ch, CURLOPT_COOKIEFILE, dirname(__FILE__) . '/cookie.txt'); #PHP>5.3.6 dirname(__FILE__) -> __DIR__
+            curl_setopt($ch, CURLOPT_COOKIEJAR, dirname(__FILE__) . '/cookie.txt'); #PHP>5.3.6 dirname(__FILE__) -> __DIR__
         }
 
         if ($this->httpAuth) {
-            curl_setopt($ch, CURLOPT_USERPWD,
-                $this->parameters->getAuth("login").":".$this->parameters->getAuth("password"));
+            curl_setopt($ch, CURLOPT_USERPWD, $this->parameters->getAuth('login') . ':' . $this->parameters->getAuth('password'));
         }
 
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($ch, CURLOPT_HEADER, FALSE);
+        curl_setopt($ch, CURLOPT_HEADER, false);
         curl_setopt($ch, CURLOPT_ENCODING, '');
 
         if ($this->parameters->hasPost()) {
-            if ($this->json) {
+            if ($this->parameters->getJson()) {
                 $fields = json_encode($this->parameters->getPost());
             } else {
                 $fields = http_build_query($this->parameters->getPost());
             }
             curl_setopt($ch, CURLOPT_POST, true);
             curl_setopt($ch, CURLOPT_POSTFIELDS, $fields);
-            $this->logger->debug('post params', $fields);
+            $this->logger->debug('post params', [$fields]);
         }
         if (!$this->parseTransfer) {
             curl_setopt($ch, CURLOPT_BINARYTRANSFER, true);
@@ -474,23 +416,24 @@ class Request
         }
 
         $result = curl_exec($ch);
-        $info   = curl_getinfo($ch);
-        $error  = curl_error($ch);
-        $errno  = curl_errno($ch);
+        $info = curl_getinfo($ch);
+        $error = curl_error($ch);
+        $errno = curl_errno($ch);
 
         $this->curlHandle->reset();
+        $this->parameters->reset();
 
-        $this->lastHttpCode     = $info['http_code'];
+        $this->lastHttpCode = $info['http_code'];
         $this->lastHttpResponse = $result;
 
         if ($debug !== false) {
-            $this->logger->debug('curl_exec', $result);
+            $this->logger->debug('curl_exec', [$result]);
         } else {
-            $this->logger->debug('curl_exec', "Set **NOT DEBUG RESULT**");
+            $this->logger->debug('curl_exec', 'Set **NOT DEBUG RESULT**');
         }
-        $this->logger->debug('curl_getinfo', $info);
-        $this->logger->debug('curl_error', $error);
-        $this->logger->debug('curl_errno', $errno);
+        $this->logger->debug('curl_getinfo', [var_export($info, true)]);
+        $this->logger->debug('curl_error', [$error]);
+        $this->logger->debug('curl_errno', [$errno]);
 
         if ($result === false && !empty($error)) {
             throw new NetworkException($error, $errno);
@@ -516,5 +459,99 @@ class Request
     {
         $result = json_decode($response, true);
         return $result;
+    }
+
+    /**
+     * Хотябы одного из значений. Если есть пустое значение, генерируется ошибка
+     * @author Alexei Dubrovski <alaxji@gmail.com>
+     * @param array $values
+     * @param string $message
+     * @throws ModelException
+     */
+    private function checkEmpty(array $values, string $message)
+    {
+        foreach ($values as $value) {
+            if (empty($value)) {
+                throw new ModelException($message);
+            }
+        }
+    }
+
+    /**
+     * Получить родительсктий модуль
+     * @return AbstractModel|null
+     */
+    public function getParent()
+    {
+        return $this->parent;
+    }
+
+    /**
+     * Получить клиента API
+     * @return AbstractClient|null
+     */
+    public function getClient(): AbstractClient
+    {
+        return $this->client;
+    }
+
+    /**
+     * Какой вид точки запроса?
+     * 
+     *      * `true` - Индивидуальная точка запроса. Родительские точки будут исключены
+     *
+     * `false` - Общая точка запроса. Родительские точки будут включены
+     * @return type
+     */
+    public function isEndpointIndividual()
+    {
+        return $this->endpointIndividual;
+    }
+
+    /**
+     * Установка флага вывода отладочной информации
+     *
+     * @param bool $flag Значение флага
+     * @return $this
+     * @author dotzero <mail@dotzero.ru>
+     */
+    public function setDebug($flag = true)
+    {
+        $this->debug = (bool) $flag;
+
+        $level = $this->debug ? LogLevel::DEBUG : LogLevel::INFO;
+        $this->logger->setLevel($level);
+
+        return $this;
+    }
+
+    /**
+     * Устанавливает в каком виде будет интерпредироваться точка запроса.
+     *
+     * `true` - Индивидуальная точка запроса. Родительские точки будут исключены
+     *
+     * `false` - Общая точка запроса. Родительские точки будут включены
+     * @param bool $endpointIndividual
+     * @return $this
+     */
+    public function setEndpointIndividual($endpointIndividual = true)
+    {
+        $this->endpointIndividual = $endpointIndividual;
+
+        return $this;
+    }
+
+    /**
+     * Устанавливает точку запроса. Устанавливается после домена включая родительские точки запроса, если не установлено обратное
+     * @param string $endpoint
+     * @return $this
+     *
+     * @see _3xAPI\Request::setEndpointIndividual()
+     */
+    public function setEndpoint(string $endpoint)
+    {
+        $this->endpoint = $endpoint;
+
+        return $this;
     }
 }

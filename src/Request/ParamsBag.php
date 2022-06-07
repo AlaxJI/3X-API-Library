@@ -1,4 +1,5 @@
 <?php
+
 /*
  * This file is part of the _3xAPI package.
  *
@@ -7,6 +8,7 @@
  * For the full copyright and license information, please view the LICENSE
  * file that was distributed with this source code.
  */
+
 namespace _3xAPI\Request;
 
 use _3xAPI\Exceptions\Exception;
@@ -15,7 +17,7 @@ use _3xAPI\Exceptions\Exception;
  * Класс для хранения аргументов
  *
  * @package _3xAPI\Request
- * @version 1.0.0
+ * @version 1.0.1
  * @author dotzero <mail@dotzero.ru>
  * @author Alexei Dubrovski <alaxji@gmail.com>
  *
@@ -25,48 +27,70 @@ use _3xAPI\Exceptions\Exception;
 class ParamsBag
 {
     /**
+     * Логин HTTP-аутентификации
+     */
+    const AUTH_PARAM_LOGIN = 'login';
+    /**
+     * Пароль HTTP-аутентификации
+     */
+    const AUTH_PARAM_PASSWORD = 'password';
+    /**
+     * Домен HTTP-аутентификации
+     * @deprecated since version 0.1.0. Use setDomain
+     */
+    const AUTH_PARAM_DOMAIN = 'domain';
+
+    /**
      * @var array Список значений параметров для авторизации
      */
     private $authParams = [];
-
+    /**
+     * @var bool Флаг использования протокола https. По-умолчанию, `true`.
+     * @author Alexei Dubrovski <alaxji@gmail.com>
+     */
+    private $https = true;
+    /**
+     * @var bool Флаг для установки передачи данных в `Content-Type: application/json`. По-умолчанию, `true`.
+     * @author Alexei Dubrovski <alaxji@gmail.com>
+     */
+    private $json = true;
     /**
      * Параметр авторизации
      * @var string Доменное имя сервера
      */
     private $domain = null;
-
     /**
      * Параметр авторизации
      * @var string логин
      */
     private $login = null;
-
     /**
      * Параметр авторизации
      * @var string Пароль
      */
     private $password = null;
-
     /**
      * @var array Список значений GET параметров
      */
     private $getParams = [];
-
+    /**
+     * При включении этого параметра все переменные авторизации, кроме `domain`, будут присоеденены к GET-запросу как `КЛЮЧ1=ЗНАЧЕНИЕ1&КЛЮЧ2=ЗНАЧЕНИЕ2...`
+     * @var bool Флаг передачи пароля и пользователя в get запросе. По-умолчанию, `false`.
+     * @author Alexei Dubrovski <alaxji@gmail.com>
+     */
+    private $isGetAuth = false;
     /**
      * @var array Список значений POST параметров
      */
     private $postParams = [];
-
     /**
      * @var string|null Прокси сервер для отправки запроса
      */
     private $proxy = null;
-
     /**
      * @var stirng Имя файла для передачи
      */
     private $file = null;
-
     /**
      * @var resource Указадель на файл
      */
@@ -87,7 +111,7 @@ class ParamsBag
     }
 
     /**
-     * Добавление значений параметров для авторизации
+     * Добавление/перезапись значений параметров для авторизации
      *
      * @author dotzero <mail@dotzero.ru>
      * @author Alexei Dubrovski <alaxji@gmail.com>
@@ -97,14 +121,19 @@ class ParamsBag
      */
     public function addAuth($name, $value)
     {
-        if ($name == "login") {
-            $this->login = $value;
-        } elseif ($name == "password") {
-            $this->password = $value;
-        } elseif ($name == "domain") {
-            $this->domain = $value;
-        } else {
-            $this->authParams[$name] = $value;
+        switch ($name) {
+            case static::AUTH_PARAM_LOGIN:
+                $this->login = $value;
+                break;
+            case static::AUTH_PARAM_PASSWORD:
+                $this->password = $value;
+                break;
+            case static::AUTH_PARAM_DOMAIN:
+                $this->domain = $value;
+                break;
+            default:
+                $this->authParams[$name] = $value;
+                break;
         }
         return $this;
     }
@@ -119,19 +148,37 @@ class ParamsBag
      */
     public function getAuth($name = null)
     {
-        if ($name !== null) {
-            if ($name == "login") {
-                return $this->login;
-            } elseif ($name == "password") {
-                return $this->password;
-            } elseif ($name == "domain") {
-                return $this->domain;
-            } else {
-                return isset($this->authParams[$name]) ? $this->authParams[$name] : null;
-            }
+        $value = null;
+        switch ($name) {
+            case static::AUTH_PARAM_LOGIN:
+                $value = $this->login;
+                break;
+            case static::AUTH_PARAM_PASSWORD:
+                $value = $this->password;
+                break;
+            case static::AUTH_PARAM_DOMAIN:
+                $value = $this->domain;
+                break;
+            case null:
+                $value = $this->authParams;
+                break;
+            default:
+                if (isset($this->authParams[$name])) {
+                    $value = $this->authParams[$name];
+                }
+                break;
         }
 
-        return $this->authParams;
+        return $value;
+    }
+
+    /**
+     * Получить домен API
+     * @return string
+     */
+    public function getDomain(): string
+    {
+        return $this->domain;
     }
 
     /**
@@ -144,7 +191,7 @@ class ParamsBag
      */
     public function addGet($name, $value = null)
     {
-        if (is_array($name) && $value === null) {
+        if (is_array($name) && is_null($value)) {
             $this->getParams = array_merge($this->getParams, $name);
         } else {
             $this->getParams[$name] = $value;
@@ -163,7 +210,7 @@ class ParamsBag
      */
     public function getGet($name = null)
     {
-        if ($name !== null) {
+        if (!is_null($name)) {
             return isset($this->getParams[$name]) ? $this->getParams[$name] : null;
         }
 
@@ -204,7 +251,7 @@ class ParamsBag
      */
     public function addPost($name, $value = null)
     {
-        if (is_array($name) && $value === null) {
+        if (is_array($name) && is_null($value)) {
             $this->postParams = array_merge($this->postParams, $name);
         } else {
             $this->postParams[$name] = $value;
@@ -223,7 +270,7 @@ class ParamsBag
      */
     public function getPost($name = null)
     {
-        if ($name !== null) {
+        if (!is_null($name)) {
             return isset($this->postParams[$name]) ? $this->postParams[$name] : null;
         }
 
@@ -277,6 +324,17 @@ class ParamsBag
     }
 
     /**
+     * Установать домен API
+     * @param string $domain Домен
+     * @return $this
+     */
+    public function setDomain(string $domain)
+    {
+        $this->domain = $domain;
+        return $this;
+    }
+
+    /**
      * Определение файла для отправки (возможно устаноаить только 1 файл для отправки).
      * Исключение вызываются если файл не найден или недоступен для чтения.
      *
@@ -285,13 +343,13 @@ class ParamsBag
      * @return $this
      * @throws _3xAPI\Exceptions\Exception
      */
-    public function setFile($filename)
+    public function setFile(string $filename)
     {
         if (!is_file($filename)) {
-            throw new Exception("Файл $filename не найден");
+            throw new Exception('Файл' . $filename . ' не найден');
         }
-        if (false === $fileHandle = fopen($filename, "rb")) {
-            throw new Exception("Не удалось открыть файл $filename");
+        if (false === $fileHandle = fopen($filename, 'rb')) {
+            throw new Exception('Не удалось открыть файл ' . $filename);
         }
         fclose($fileHandle);
         $this->file = $filename;
@@ -317,10 +375,13 @@ class ParamsBag
     public function getFileParams()
     {
         if (!is_null($this->file)) {
-            return array("file name" => $this->file, "file size" => filesize($this->file));
+            return [
+                'file name' => $this->file,
+                'file size' => filesize($this->file)
+            ];
         }
 
-        return false;
+        return [];
     }
 
     /**
@@ -342,7 +403,7 @@ class ParamsBag
      */
     public function openFile()
     {
-        $this->fileHandle = fopen($this->file, "rb");
+        $this->fileHandle = fopen($this->file, 'rb');
         return $this->fileHandle;
     }
 
@@ -366,5 +427,101 @@ class ParamsBag
     public function hasFile()
     {
         return !is_null($this->file);
+    }
+
+    /**
+     * Очищает параметры файла
+     * @return $this
+     */
+    public function clearFile()
+    {
+        if (!is_null($this->fileHandle)) {
+            $this->closeFile();
+            $this->fileHandle = null;
+        }
+
+        $this->file = null;
+
+        return $this;
+    }
+
+    /**
+     * Установка флага отправки параметров авторизации GET-запросом
+     *
+     * При включении этого параметра все переменные авторизации, кроме `domain`, будут присоеденены к GET-запросу как `КЛЮЧ1=ЗНАЧЕНИЕ1&КЛЮЧ2=ЗНАЧЕНИЕ2...`
+     *
+     * @param bool $flag Значение флага
+     * @return $this
+     * @author Alexei Dubrovski <alaxji@gmail.com>
+     */
+    public function setGetAuth($flag = true)
+    {
+        $this->isGetAuth = (bool) $flag;
+
+        return $this;
+    }
+
+    /**
+     * Получение флага отправки параметров авторизации GET-запросом
+     * @return bool
+     */
+    public function getGetAuth(): bool
+    {
+        return $this->isGetAuth;
+    }
+
+    /**
+     * Установка флага отправки данных через JSON
+     *
+     * @param bool $flag Значение флага
+     * @return $this
+     * @author Alexei Dubrovski <alaxji@gmail.com>
+     * @
+     */
+    public function setJson($flag = true)
+    {
+        $this->json = (bool) $flag;
+
+        return $this;
+    }
+
+    /**
+     * Отправки данных через JSON?
+     * @return bool
+     */
+    public function getJson(): bool
+    {
+        return $this->json;
+    }
+
+    /**
+     * Установка флага отправки данных через HTTPS
+     *
+     * @param bool $flag Значение флага
+     * @return $this
+     * @author Alexei Dubrovski <alaxji@gmail.com>
+     */
+    public function setHttps($flag = true)
+    {
+        $this->https = (bool) $flag;
+
+        return $this;
+    }
+
+    /**
+     * Отправки данных через HTTPS?
+     * @return bool
+     */
+    public function getHttps(): bool
+    {
+        return $this->https;
+    }
+
+    /**
+     * Сброс параметров get, post, file - для последующего запроса.
+     */
+    public function reset()
+    {
+        $this->clearGet()->clearPost()->clearFile();
     }
 }

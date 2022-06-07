@@ -1,4 +1,5 @@
 <?php
+
 /*
  * This file is part of the _3xAPI package.
  *
@@ -75,6 +76,7 @@ class CurlHandle
         curl_setopt($this->handle, CURLOPT_READFUNCTION, null);
         curl_setopt($this->handle, CURLOPT_WRITEFUNCTION, null);
         curl_setopt($this->handle, CURLOPT_PROGRESSFUNCTION, null);
+        curl_setopt($this->handle, CURLOPT_CUSTOMREQUEST, null);
         curl_reset($this->handle);
     }
 }
